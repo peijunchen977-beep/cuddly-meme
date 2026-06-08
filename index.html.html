@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>庫存預撿工具</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- Firebase CDN (compat 版，支援舊式 API) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<style>
+:root{
+  --bg:#f4f1ea;--card:#fff;--text:#3c3633;--sub:#7a726e;
+  --green:#8f9779;--tan:#c8b6a6;--red:#d4846a;--yellow:#c8a55a;
+  --border:#e8e2d9;--shadow:0 2px 12px rgba(60,54,51,.07);
+  --r:16px;--rs:10px;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{font-family:-apple-system,'Hiragino Sans','Yu Gothic',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding-bottom:72px}
+.header{background:var(--card);padding:14px 16px 10px;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10}
+.header h1{font-size:16px;font-weight:700;letter-spacing:.4px}
+.sync{font-size:11px;color:var(--sub);margin-top:2px;display:flex;align-items:center;gap:4px}
+.dot{width:7px;height:7px;border-radius:50%;background:#bbb;flex-shrink:0}
+.dot.ok{background:var(--green)}.dot.err{background:var(--red)}.dot.sp{animation:pulse 1s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.bnav{position:fixed;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--border);display:flex;z-index:10;padding-bottom:env(safe-area-inset-bottom)}
+.bnav button{flex:1;padding:8px 2px 6px;border:none;background:none;font-size:9px;color:var(--sub);display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer}
+.bnav button .ic{font-size:18px}
+.bnav button.on{color:var(--green);font-weight:700}
+.pg{display:none;padding:12px 12px 4px}.pg.on{display:block}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+.stat{background:var(--card);border-radius:var(--r);padding:12px;box-shadow:var(--shadow);cursor:pointer;border:2px solid transparent;transition:all .2s}
+.stat.on{border-color:var(--green)}
+.stat .lbl{font-size:10px;color:var(--sub);margin-bottom:3px}
+.stat .val{font-size:24px;font-weight:700}
+.stat .val.y{color:var(--yellow)}.stat .val.r{color:var(--red)}.stat .val.g{color:var(--green)}
+.icard{background:var(--card);border-radius:var(--r);padding:12px 14px;margin-bottom:8px;box-shadow:var(--shadow);border:2px solid transparent}
+.icard.low{border-color:#e8c870}.icard.out{border-color:var(--red)}
+.icard .nm{font-size:14px;font-weight:600;margin-bottom:8px;word-break:break-all}
+.icard .qrow{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+.iqty{font-size:26px;font-weight:700;min-width:44px;padding:3px 10px;border-radius:8px;border:1.5px solid var(--border);background:var(--bg);cursor:pointer;text-align:center}
+.qbtn{height:36px;min-width:44px;padding:0 10px;border:1.5px solid var(--border);border-radius:8px;background:var(--bg);font-size:15px;font-weight:700;cursor:pointer;color:var(--text);transition:background .15s,transform .1s;display:inline-flex;align-items:center;justify-content:center}
+.qbtn:active{transform:scale(.92);background:var(--border)}
+.qbtn.p{border-color:var(--green);color:var(--green)}
+.qbtn.m{border-color:var(--tan);color:var(--tan)}
+.icard .btm{display:flex;align-items:center;justify-content:space-between}
+.badge{font-size:10px;padding:2px 8px;border-radius:20px;font-weight:600}
+.bok{background:#eef1e8;color:var(--green)}.blow{background:#fdf3e3;color:#9a7020}.bout{background:#fdeee8;color:var(--red)}
+.ab{display:flex;gap:5px;flex-wrap:wrap}
+.card{background:var(--card);border-radius:var(--r);padding:13px;margin-bottom:10px;box-shadow:var(--shadow)}
+.card h3{font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.5px;margin-bottom:8px;text-transform:uppercase}
+input[type=text],input[type=number],select,textarea{width:100%;padding:9px 11px;border:1.5px solid var(--border);border-radius:var(--rs);font-size:13px;background:var(--bg);color:var(--text);-webkit-appearance:none;outline:none;transition:border-color .2s}
+input:focus,select:focus,textarea:focus{border-color:var(--tan)}
+textarea{min-height:80px;resize:vertical;font-family:monospace;font-size:12px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;height:38px;padding:0 14px;border:none;border-radius:var(--rs);font-size:13px;font-weight:600;cursor:pointer;transition:opacity .15s;width:100%}
+.btn:active{opacity:.7}
+.bg2{background:var(--green);color:#fff}
+.br2{background:var(--red);color:#fff}
+.by{background:var(--yellow);color:#fff}
+.bo{background:var(--bg);color:var(--text);border:1.5px solid var(--border)}
+.btn2{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:7px}
+.ibtn{height:28px;padding:0 9px;border:1.5px solid var(--border);border-radius:7px;background:var(--bg);font-size:11px;font-weight:600;cursor:pointer;color:var(--text);white-space:nowrap}
+.ibtn.g{border-color:var(--green);color:var(--green)}.ibtn.r{border-color:var(--red);color:var(--red)}.ibtn.b{border-color:#7a9abf;color:#4a6a8f}
+.warn{background:#fdeee8;color:#9a3020;border-radius:var(--rs);padding:8px 11px;font-size:12px;margin-top:6px;display:none}
+.warn.show{display:flex;align-items:center;gap:5px}
+.alr{background:#fdf3e3;color:#7a5a10;border-radius:var(--rs);padding:9px 11px;font-size:12px;margin-bottom:8px;display:none}
+.alr.show{display:flex;align-items:flex-start;gap:5px}
+.suc{background:#eef1e8;color:#4a5a30;border-radius:var(--rs);padding:9px 11px;font-size:12px;margin-bottom:8px;display:none}
+.suc.show{display:flex;align-items:center;gap:5px}
+.sw{position:relative;margin-bottom:8px}
+.sw input{padding-left:32px}
+.sw::before{content:'🔍';position:absolute;left:9px;top:50%;transform:translateY(-50%);font-size:13px;pointer-events:none}
+.ftags{display:flex;gap:6px;margin-bottom:10px;overflow-x:auto;scrollbar-width:none}
+.ftags::-webkit-scrollbar{display:none}
+.ftag{flex-shrink:0;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;border:1.5px solid var(--border);background:var(--card);color:var(--sub);cursor:pointer}
+.ftag.on{background:var(--green);color:#fff;border-color:var(--green)}
+.orow{display:grid;grid-template-columns:1fr 70px auto;gap:6px;margin-bottom:6px;align-items:center}
+.owrap{margin-bottom:6px}
+.cstats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;margin-bottom:12px}
+.cstat{background:var(--card);border-radius:var(--rs);padding:10px 8px;text-align:center;cursor:pointer;border:2px solid transparent;box-shadow:var(--shadow)}
+.cstat.on{border-color:var(--green)}
+.cstat .lbl{font-size:10px;color:var(--sub);margin-bottom:3px}
+.cstat .val{font-size:20px;font-weight:700}
+.tw{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:12px;min-width:260px}
+th{padding:6px 7px;border-bottom:1.5px solid var(--border);color:var(--sub);font-weight:600;text-align:left;white-space:nowrap}
+td{padding:6px 7px;border-bottom:1px solid var(--border);vertical-align:middle}
+.srow td{background:#fff8f5}
+.nsrow{background:var(--bg);border-radius:var(--rs);padding:9px;margin-bottom:6px;display:grid;grid-template-columns:1fr auto;gap:7px;align-items:start}
+.sl{font-size:11px;color:var(--sub);margin-bottom:5px}
+.mt8{margin-top:8px}
+.ld{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;z-index:100}
+.sp2{width:30px;height:30px;border:3px solid var(--border);border-top-color:var(--green);border-radius:50%;animation:rot .8s linear infinite}
+@keyframes rot{to{transform:rotate(360deg)}}
+.empty{text-align:center;padding:28px;color:var(--sub);font-size:13px}
+</style>
+</head>
+<body>
+<div class="ld" id="ld"><div class="sp2"></div><div style="font-size:13px;color:var(--sub)">載入資料中⋯</div></div>
+
+<div class="header">
+  <h1>📦 庫存預撿工具</h1>
+  <div class="sync"><div class="dot sp" id="dot"></div><span id="stxt">載入中...</span></div>
+</div>
+
+<!-- ① 庫存清點 -->
+<div class="pg on" id="pg-inv">
+  <div style="height:10px"></div>
+  <div class="stats">
+    <div class="stat on" id="st-all" onclick="fi('all')"><div class="lbl">全部商品</div><div class="val" id="sa">0</div></div>
+    <div class="stat" id="st-low" onclick="fi('low')"><div class="lbl">低庫存</div><div class="val y" id="sl2">0</div></div>
+    <div class="stat" id="st-re" onclick="fi('re')"><div class="lbl">補貨</div><div class="val r" id="sr">0</div></div>
+    <div class="stat" id="st-ns" onclick="fi('ns')"><div class="lbl">倉庫無貨</div><div class="val r" id="sn">0</div></div>
+  </div>
+  <div id="ns-sec" style="display:none">
+    <div class="card">
+      <h3>🚫 倉庫無貨清單</h3>
+      <div class="sl">登記倉庫真正無貨的商品，到貨後輸入數量入倉</div>
+      <div style="display:grid;grid-template-columns:1fr 80px auto;gap:6px;margin-top:7px;align-items:center">
+        <input id="nsn" placeholder="商品名稱">
+        <input type="number" id="nsq" placeholder="缺幾個" min="0">
+        <button class="btn br2" style="width:auto;padding:0 11px" onclick="addNS()">+ 登記</button>
+      </div>
+      <div id="nslist" style="margin-top:9px"></div>
+    </div>
+  </div>
+  <div class="card">
+    <h3>✏️ 新增 / 補充庫存</h3>
+    <div class="sl">商品已存在則自動累加數量</div>
+    <div style="display:grid;grid-template-columns:1fr 80px auto;gap:6px;margin-top:7px;align-items:center">
+      <input id="inv-n" placeholder="商品名稱" oninput="chkNS()">
+      <input type="number" id="inv-q" placeholder="數量" min="0">
+      <button class="btn bg2" style="width:auto;padding:0 11px" onclick="addInv()">+ 新增</button>
+    </div>
+    <div class="warn" id="nswarn"></div>
+  </div>
+  <div class="sw"><input id="inv-s" placeholder="搜尋商品名稱⋯" oninput="renInv()"></div>
+  <div class="ftags">
+    <div class="ftag on" id="ft-all" onclick="fi('all')">全部</div>
+    <div class="ftag" id="ft-low" onclick="fi('low')">低庫存</div>
+    <div class="ftag" id="ft-re" onclick="fi('re')">補貨</div>
+  </div>
+  <div id="inv-list"></div>
+</div>
+
+<!-- ② 訂單預撿 -->
+<div class="pg" id="pg-ord">
+  <div style="height:10px"></div>
+  <div class="cstats">
+    <div class="cstat on" id="ck-all" onclick="cf('all')"><div class="lbl">預撿數量</div><div class="val" id="ci">0</div></div>
+    <div class="cstat" id="ck-ok" onclick="cf('ok')"><div class="lbl">庫存充足</div><div class="val g" id="co">0</div></div>
+    <div class="cstat" id="ck-sh" onclick="cf('sh')"><div class="lbl">需補貨</div><div class="val r" id="cs">0</div></div>
+  </div>
+  <div class="alr" id="chalr"></div>
+  <div class="suc" id="chok">✅ 出貨確認完成，庫存已扣除！</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:8px">
+    <button class="btn bo" onclick="runChk()">🔄 重新預撿</button>
+    <button class="btn bg2" onclick="confirmShip()" id="shipbtn">🚚 確認出貨</button>
+  </div>
+  <button class="btn by" id="expShortBtn" onclick="expShortXL()" style="margin-bottom:10px;display:none">📥 匯出缺貨叫貨單 Excel</button>
+  <div class="card">
+    <h3>📝 手動輸入訂單</h3>
+    <div id="orows"></div>
+    <button class="btn bo mt8" onclick="addOR()">+ 新增一行</button>
+  </div>
+  <div class="card">
+    <h3>📋 CSV 匯入訂單</h3>
+    <div class="sl">格式：商品名稱,數量</div>
+    <textarea id="ocsv" placeholder="商品A,5&#10;商品B,3"></textarea>
+    <div class="btn2">
+      <button class="btn bg2" onclick="impOrd()">📤 匯入</button>
+      <button class="btn br2" onclick="clrOrd()">🗑 清空</button>
+    </div>
+  </div>
+  <div class="card">
+    <h3>📊 今日訂單彙總</h3>
+    <div class="tw"><table><thead><tr><th>商品</th><th>需出</th><th>操作</th></tr></thead><tbody id="osbody"></tbody></table></div>
+  </div>
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+      <h3 style="margin:0">📋 總覽清單</h3>
+      <span id="cfl" style="font-size:10px;color:var(--sub)"></span>
+    </div>
+    <div class="tw"><table><thead><tr><th>商品</th><th>庫存</th><th>需出</th><th>差額</th><th>狀態</th><th>操作</th></tr></thead><tbody id="ckbody"></tbody></table></div>
+  </div>
+  <div class="card" id="recard" style="display:none">
+    <h3>📋 補貨清單（請傳給倉庫）</h3>
+    <div class="tw"><table><thead><tr><th>商品</th><th>現有</th><th>缺少</th></tr></thead><tbody id="rebdy"></tbody></table></div>
+  </div>
+</div>
+
+<!-- ③ 匯入/匯出 -->
+<div class="pg" id="pg-io">
+  <div style="height:10px"></div>
+  <div class="card">
+    <h3>📤 匯入 Excel / CSV 檔案</h3>
+    <div class="sl">格式：商品名稱, 數量（每行一筆）</div>
+    <button class="btn bo mt8" onclick="document.getElementById('ff').click()">📁 選擇檔案匯入</button>
+    <input type="file" id="ff" accept=".xlsx,.xls,.csv" style="display:none" onchange="impFile(this)">
+  </div>
+  <div class="card">
+    <h3>📋 貼上 CSV 文字</h3>
+    <div class="sl">格式：商品名稱,數量（每行一筆）</div>
+    <textarea id="icsv" placeholder="商品A,100&#10;商品B,50"></textarea>
+    <button class="btn bg2 mt8" onclick="impCSV()">📤 匯入文字</button>
+  </div>
+  <div class="card">
+    <h3>📥 匯出 Excel</h3>
+    <div class="sl">將目前庫存匯出為 .xlsx 檔案</div>
+    <button class="btn bo mt8" onclick="expXL()">📥 下載庫存 Excel</button>
+  </div>
+  <div class="card">
+    <h3>🗑 危險操作</h3>
+    <button class="btn br2 mt8" onclick="clrInv()">清空全部庫存</button>
+  </div>
+</div>
+
+<!-- ④ 系統設定 -->
+<div class="pg" id="pg-set">
+  <div style="height:10px"></div>
+  <div class="card">
+    <h3>⚙️ 補貨提醒門檻</h3>
+    <div class="sl">庫存低於此數量時標示「低庫存」</div>
+    <div style="display:flex;gap:7px;margin-top:7px;align-items:center">
+      <input type="number" id="thr-inp" value="5" min="1" style="max-width:90px">
+      <button class="btn bg2" style="width:auto;padding:0 14px" onclick="saveThr()">儲存</button>
+    </div>
+    <div class="suc mt8" id="thrsv">✓ 已儲存</div>
+  </div>
+  <div class="card">
+    <h3>💾 資料管理</h3>
+    <div class="sl">資料儲存於 Firebase 雲端，多裝置共享同步</div>
+    <button class="btn bo mt8" onclick="loadData()">🔄 重新載入資料</button>
+  </div>
+</div>
+
+<nav class="bnav">
+  <button class="on" id="nav-inv" onclick="goTab('inv',this)"><div class="ic">📦</div>庫存清點</button>
+  <button id="nav-ord" onclick="goTab('ord',this)"><div class="ic">📝</div>訂單預撿</button>
+  <button id="nav-io" onclick="goTab('io',this)"><div class="ic">📊</div>匯入/匯出</button>
+  <button id="nav-set" onclick="goTab('set',this)"><div class="ic">⚙️</div>系統設定</button>
+</nav>
+
+<script>
+// ======================================================
+// 🔥 Firebase 設定 — 請將下方 FIREBASE_DB_URL 換成你的
+//    Realtime Database URL，格式：
+//    https://<你的專案ID>-default-rtdb.firebaseio.com
+// ======================================================
+var FIREBASE_DB_URL = 'https://my-inventory-tool-7afee-default-rtdb.firebaseio.com';
+
+var firebaseConfig = { databaseURL: FIREBASE_DB_URL };
+firebase.initializeApp(firebaseConfig);
+var db = firebase.database();
+var dbRef = db.ref('inventory_tool');  // 資料存放的根節點
+
+var inv={},ord={},ns={},his=[],thr=5,svtmr=null,aif='all',af='all',ckres=[];
+
+function setSync(s,m){
+  var d=document.getElementById('dot'),t=document.getElementById('stxt');
+  d.className='dot '+(s==='ok'?'ok':s==='err'?'err':'sp');
+  t.textContent=m;
+}
+
+function loadData(){
+  setSync('sp','載入中...');
+  dbRef.once('value').then(function(snapshot){
+    var data=snapshot.val()||{};
+    try{if(data.inv)inv=data.inv;}catch(e){}
+    try{if(data.ord)ord=data.ord;}catch(e){}
+    try{if(data.ns)ns=data.ns;}catch(e){}
+    try{if(data.his)his=data.his;}catch(e){}
+    if(data.thr){thr=parseInt(data.thr)||5;document.getElementById('thr-inp').value=thr;}
+    setSync('ok','資料已載入 · '+new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'}));
+    document.getElementById('ld').style.display='none';
+    renInv(); renNS(); renOS(); runChk();
+  }).catch(function(err){
+    console.error('Firebase 載入失敗：',err);
+    setSync('err','載入失敗，請確認 Firebase 設定');
+    document.getElementById('ld').style.display='none';
+    renInv(); renNS();
+  });
+}
+
+function saveData(){
+  clearTimeout(svtmr);
+  svtmr=setTimeout(function(){
+    setSync('sp','儲存中...');
+    var payload={
+      inv: inv,
+      ord: ord,
+      ns: ns,
+      his: his.slice(0,200),  // 最多保留 200 筆歷史記錄，避免資料過大
+      thr: thr
+    };
+    dbRef.set(payload).then(function(){
+      setSync('ok','已儲存 · '+new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'}));
+    }).catch(function(err){
+      console.error('Firebase 儲存失敗：',err);
+      setSync('err','儲存失敗，請重試');
+    });
+  },500);
+}
+
+function goTab(pg,el){
+  document.querySelectorAll('.pg').forEach(function(p){p.classList.remove('on');});
+  document.querySelectorAll('.bnav button').forEach(function(b){b.classList.remove('on');});
+  document.getElementById('pg-'+pg).classList.add('on');
+  el.classList.add('on');
+  if(pg==='ord'){renOR();runChk();}
+}
+
+function fi(f){
+  aif=f;
+  ['all','low','re','ns'].forEach(function(k){document.getElementById('st-'+k).classList.toggle('on',k===f);});
+  ['all','low','re'].forEach(function(k){var el=document.getElementById('ft-'+k);if(el)el.classList.toggle('on',k===f);});
+  document.getElementById('ns-sec').style.display=f==='ns'?'block':'none';
+  renInv();
+}
+
+function addNS(){
+  var n=document.getElementById('nsn').value.trim();
+  var q=parseInt(document.getElementById('nsq').value)||0;
+  if(!n){alert('請輸入商品名稱');return;}
+  ns[n]=q;
+  document.getElementById('nsn').value='';
+  document.getElementById('nsq').value='';
+  renNS(); saveData();
+}
+
+function rstNS(n){
+  var e=encodeURIComponent(n);
+  var inp=document.getElementById('nri-'+e);
+  var q=parseInt(inp?inp.value:0);
+  if(isNaN(q)||q<=0){alert('請輸入入倉數量');return;}
+  inv[n]=(inv[n]||0)+q; delete ns[n];
+  renNS(); renInv(); saveData();
+  alert('✅ '+n+' 已入倉 '+q+' 個！');
+}
+
+function delNS(n){if(!confirm('確定移除？'))return;delete ns[n];renNS();saveData();}
+
+function renNS(){
+  document.getElementById('sn').textContent=Object.keys(ns).length;
+  var el=document.getElementById('nslist'),items=Object.entries(ns);
+  if(!items.length){el.innerHTML='<div class="empty">目前無倉庫無貨商品 ✓</div>';return;}
+  el.innerHTML=items.map(function(x){
+    var n=x[0],q=x[1],e=encodeURIComponent(n);
+    return '<div class="nsrow"><div><div style="font-size:13px;font-weight:600;margin-bottom:4px">'+n+'</div>'+
+      '<span class="badge bout">'+(q>0?'缺 '+q+' 個':'無貨')+'</span></div>'+
+      '<div class="ab"><input type="number" id="nri-'+e+'" placeholder="入倉數" min="1" style="width:68px;height:30px;font-size:12px">'+
+      '<button class="ibtn g" onclick="rstNS(\''+n+'\')">入倉</button>'+
+      '<button class="ibtn r" onclick="delNS(\''+n+'\')">刪除</button></div></div>';
+  }).join('');
+}
+
+function chkNS(){
+  var n=document.getElementById('inv-n').value.trim(),w=document.getElementById('nswarn');
+  if(n&&ns.hasOwnProperty(n)){
+    w.textContent='⚠ 「'+n+'」目前倉庫無貨'+(ns[n]>0?'，缺 '+ns[n]+' 個':'')+'，請確認後再新增';
+    w.classList.add('show');
+  } else {w.classList.remove('show');}
+}
+
+function addInv(){
+  var n=document.getElementById('inv-n').value.trim();
+  var q=parseInt(document.getElementById('inv-q').value);
+  if(!n||isNaN(q)||q<0){alert('請輸入正確名稱與數量');return;}
+  inv[n]=(inv[n]||0)+q;
+  document.getElementById('inv-n').value='';
+  document.getElementById('inv-q').value='';
+  document.getElementById('nswarn').classList.remove('show');
+  renInv(); saveData();
+}
+
+function adjInv(n,delta){
+  inv[n]=Math.max(0,(inv[n]||0)+delta);
+  renInv(); saveData();
+}
+
+function editInv(n,v){
+  var nq=prompt('修改「'+n+'」庫存數量（目前：'+v+'）',v);
+  if(nq===null)return;
+  var q=parseInt(nq);
+  if(isNaN(q)||q<0){alert('請輸入有效數量');return;}
+  inv[n]=q; renInv(); saveData();
+}
+
+function delInv(n){if(!confirm('確定刪除「'+n+'」？'))return;delete inv[n];renInv();saveData();}
+
+function renInv(){
+  var items=Object.entries(inv);
+  var q=(document.getElementById('inv-s').value||'').trim().toLowerCase();
+  document.getElementById('sa').textContent=items.length;
+  document.getElementById('sl2').textContent=items.filter(function(x){return x[1]>0&&x[1]<thr;}).length;
+  document.getElementById('sr').textContent=items.filter(function(x){return x[1]<=0;}).length;
+  var show=items;
+  if(aif==='ns'){document.getElementById('inv-list').innerHTML='';return;}
+  if(aif==='low')show=items.filter(function(x){return x[1]>0&&x[1]<thr;});
+  else if(aif==='re')show=items.filter(function(x){return x[1]<=0;});
+  if(q)show=show.filter(function(x){return x[0].toLowerCase().includes(q);});
+  var el=document.getElementById('inv-list');
+  if(!show.length){el.innerHTML='<div class="empty">'+(q||aif!=='all'?'無符合項目':'尚無庫存資料，請先新增商品 📦')+'</div>';return;}
+  el.innerHTML=show.map(function(x){
+    var n=x[0],v=x[1];
+    var cls=v<=0?'out':v<thr?'low':'';
+    var bk=v<=0?'<span class="badge bout">補貨</span>':v<thr?'<span class="badge blow">低庫存</span>':'<span class="badge bok">正常</span>';
+    var ns2=n.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+    return '<div class="icard '+cls+'">'+
+      '<div class="nm">'+n+'</div>'+
+      '<div class="qrow">'+
+        '<button class="qbtn m" onclick="adjInv(\''+ns2+'\',-1)">−1</button>'+
+        '<div class="iqty" onclick="editInv(\''+ns2+'\','+v+')">'+v+'</div>'+
+        '<button class="qbtn p" onclick="adjInv(\''+ns2+'\',1)">+1</button>'+
+      '</div>'+
+      '<div class="btm">'+bk+
+        '<div class="ab">'+
+          '<button class="ibtn b" onclick="editInv(\''+ns2+'\','+v+')">編輯</button>'+
+          '<button class="ibtn r" onclick="delInv(\''+ns2+'\')">刪除</button>'+
+        '</div>'+
+      '</div>'+
+    '</div>';
+  }).join('');
+}
+
+function impCSV(){
+  var lines=document.getElementById('icsv').value.trim().split('\n').filter(Boolean);
+  var c=0;
+  lines.forEach(function(l){var p=l.split(',');if(p.length<2)return;var n=p[0].trim(),q=parseInt(p[1].trim());if(n&&!isNaN(q)){inv[n]=(inv[n]||0)+q;c++;}});
+  document.getElementById('icsv').value='';
+  renInv(); saveData(); if(c)alert('✅ 成功匯入 '+c+' 筆');
+}
+
+function impFile(inp){
+  var f=inp.files[0];if(!f)return;
+  var ext=f.name.split('.').pop().toLowerCase();
+  var rd=new FileReader();
+  rd.onload=function(e){
+    var c=0;
+    if(ext==='csv'){
+      new TextDecoder('utf-8').decode(new Uint8Array(e.target.result)).split('\n').forEach(function(l){
+        var p=l.trim().split(',');if(p.length<2)return;
+        var n=p[0].trim(),q=parseInt(p[1].trim());if(n&&!isNaN(q)){inv[n]=(inv[n]||0)+q;c++;}
+      });
+    } else {
+      var wb=XLSX.read(e.target.result,{type:'array'});
+      XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1}).forEach(function(r,i){
+        if(i===0&&isNaN(parseInt(r[1])))return;
+        var n=String(r[0]||'').trim(),q=parseInt(r[1]);if(n&&!isNaN(q)){inv[n]=(inv[n]||0)+q;c++;}
+      });
+    }
+    renInv(); saveData(); alert('✅ 成功匯入 '+c+' 筆');
+  };
+  rd.readAsArrayBuffer(f); inp.value='';
+}
+
+function expXL(){
+  if(!Object.keys(inv).length){alert('目前無庫存資料');return;}
+  var ws=XLSX.utils.aoa_to_sheet([['商品名稱','數量']].concat(Object.entries(inv)));
+  var wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'庫存');
+  XLSX.writeFile(wb,'庫存_'+new Date().toLocaleDateString('zh-TW').replace(/\//g,'-')+'.xlsx');
+}
+
+function expShortXL(){
+  var shorts=ckres.filter(function(r){return r.d<0;});
+  if(!shorts.length){alert('目前沒有缺貨商品');return;}
+  var rows=[['商品名稱','訂單需出數量','現有庫存','缺少數量']];
+  shorts.forEach(function(r){rows.push([r.n,r.nd,r.h,-r.d]);});
+  var ws=XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols']=[{wch:20},{wch:14},{wch:10},{wch:10}];
+  var wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'缺貨叫貨單');
+  XLSX.writeFile(wb,'缺貨叫貨單_'+new Date().toLocaleDateString('zh-TW').replace(/\//g,'-')+'.xlsx');
+}
+
+function clrInv(){if(!confirm('⚠️ 確定清空所有庫存？此操作無法復原！'))return;inv={};renInv();saveData();}
+
+function mkOR(n,q){
+  var w=document.createElement('div');w.className='owrap';
+  var row=document.createElement('div');row.className='orow';
+  var names=Object.keys(inv);
+  var opts='<option value="">選擇商品</option>'+names.map(function(x){
+    var isNS=ns.hasOwnProperty(x);
+    return '<option value="'+x+'"'+(x===n?' selected':'')+(isNS?' style="color:var(--red)"':'')+'>'+(isNS?'⚠ ':'')+x+'</option>';
+  }).join('');
+  row.innerHTML='<select>'+opts+'</select><input type="number" placeholder="數量" min="1"'+(q?' value="'+q+'"':'')+'><button class="ibtn r" onclick="this.closest(\'.owrap\').remove();syncOR();renOS();saveData()">刪除</button>';
+  var wn=document.createElement('div');wn.className='warn';
+  w.appendChild(row);w.appendChild(wn);
+  var sel=row.querySelector('select');
+  sel.onchange=function(){
+    var v=sel.value;
+    if(v&&ns.hasOwnProperty(v)){wn.textContent='⚠ 「'+v+'」倉庫無貨'+(ns[v]>0?'，缺 '+ns[v]+' 個':'')+'，請先補貨';wn.classList.add('show');}
+    else{wn.classList.remove('show');}
+    syncOR();renOS();saveData();
+  };
+  row.querySelector('input').oninput=function(){syncOR();renOS();saveData();};
+  return w;
+}
+
+function addOR(){document.getElementById('orows').appendChild(mkOR('',''));}
+
+function syncOR(){
+  ord={};
+  document.querySelectorAll('#orows .orow').forEach(function(r){
+    var s=r.querySelector('select'),i=r.querySelector('input');
+    var n=s?s.value:'',q=parseInt(i?i.value:0);
+    if(n&&!isNaN(q)&&q>0)ord[n]=(ord[n]||0)+q;
+  });
+}
+
+function renOR(){
+  var c=document.getElementById('orows');
+  if(c.children.length)return;
+  var items=Object.entries(ord);
+  if(items.length)items.forEach(function(x){c.appendChild(mkOR(x[0],x[1]));});
+  else addOR();
+}
+
+function impOrd(){
+  var lines=document.getElementById('ocsv').value.trim().split('\n').filter(Boolean);
+  lines.forEach(function(l){var p=l.split(',');if(p.length<2)return;var n=p[0].trim(),q=parseInt(p[1].trim());if(n&&!isNaN(q)&&q>0)ord[n]=(ord[n]||0)+q;});
+  document.getElementById('ocsv').value='';
+  document.getElementById('orows').innerHTML='';
+  renOR();renOS();saveData();alert('訂單匯入完成');
+}
+
+function clrOrd(){if(!confirm('確定清空所有訂單？'))return;ord={};document.getElementById('orows').innerHTML='';renOS();saveData();}
+
+function edOrd(n){
+  var e=encodeURIComponent(n);
+  document.getElementById('otn-'+e).innerHTML='<input id="oen-'+e+'" value="'+n+'" style="min-width:70px;height:28px;font-size:12px">';
+  document.getElementById('otq-'+e).innerHTML='<input type="number" id="oeq-'+e+'" value="'+ord[n]+'" min="1" style="width:58px;height:28px;font-size:12px">';
+  document.getElementById('ota-'+e).innerHTML='<button class="ibtn g" onclick="svOrd(\''+e+'\',\''+n+'\')">儲存</button>';
+}
+
+function svOrd(e,on){
+  var nn=document.getElementById('oen-'+e).value.trim();
+  var nq=parseInt(document.getElementById('oeq-'+e).value);
+  if(!nn||isNaN(nq)||nq<1){alert('請輸入正確名稱與數量');return;}
+  if(nn!==on)delete ord[on];
+  ord[nn]=nq;document.getElementById('orows').innerHTML='';
+  renOR();renOS();saveData();
+}
+
+function delOrd(n){
+  delete ord[n];
+  document.querySelectorAll('#orows .orow').forEach(function(r){var s=r.querySelector('select');if(s&&s.value===n)r.closest('.owrap').remove();});
+  renOS();saveData();
+}
+
+function renOS(){
+  var tb=document.getElementById('osbody'),items=Object.entries(ord);
+  if(!items.length){tb.innerHTML='<tr><td colspan="3" style="text-align:center;padding:.8rem;color:var(--sub)">尚無訂單</td></tr>';return;}
+  tb.innerHTML=items.map(function(x){
+    var n=x[0],q=x[1],e=encodeURIComponent(n);
+    return '<tr><td id="otn-'+e+'">'+n+'</td><td id="otq-'+e+'">'+q+'</td>'+
+      '<td id="ota-'+e+'"><div class="ab"><button class="ibtn b" onclick="edOrd(\''+n+'\')">編輯</button>'+
+      '<button class="ibtn r" onclick="delOrd(\''+n+'\')">刪除</button></div></td></tr>';
+  }).join('');
+}
+
+function cf(f){
+  af=f;
+  ['all','ok','sh'].forEach(function(k){document.getElementById('ck-'+k).classList.toggle('on',k===f);});
+  document.getElementById('cfl').textContent=f==='ok'?'篩選：充足':f==='sh'?'篩選：需補貨':'';
+  renCK();
+}
+
+function renCK(){
+  var tb=document.getElementById('ckbody'),rows=ckres;
+  if(af==='ok')rows=ckres.filter(function(r){return r.d>=0;});
+  else if(af==='sh')rows=ckres.filter(function(r){return r.d<0;});
+  if(!rows.length){tb.innerHTML='<tr><td colspan="6" style="text-align:center;padding:.8rem;color:var(--sub)">無符合項目</td></tr>';return;}
+  tb.innerHTML=rows.map(function(r){
+    var e=encodeURIComponent(r.n);
+    var bk=r.d>=0?'<span class="badge bok">充足</span>':'<span class="badge bout">不足</span>';
+    var ds=r.d>=0?'+'+r.d:String(r.d),dc=r.d>=0?'var(--green)':'var(--red)';
+    return '<tr'+(r.d<0?' class="srow"':'')+'>'+
+      '<td>'+r.n+'</td><td>'+r.h+'</td>'+
+      '<td id="ctq-'+e+'">'+r.nd+'</td>'+
+      '<td style="color:'+dc+';font-weight:700">'+ds+'</td><td>'+bk+'</td>'+
+      '<td id="cta-'+e+'"><div class="ab">'+
+        '<button class="ibtn b" onclick="edCK(\''+e+'\',\''+r.n+'\','+r.nd+')">編輯</button>'+
+        '<button class="ibtn r" onclick="delCK(\''+r.n+'\')">刪除</button>'+
+      '</div></td></tr>';
+  }).join('');
+}
+
+function edCK(e,n,nd){
+  document.getElementById('ctq-'+e).innerHTML='<input type="number" id="cki-'+e+'" value="'+nd+'" min="1" style="width:58px;height:28px;font-size:12px">';
+  document.getElementById('cta-'+e).innerHTML='<button class="ibtn g" onclick="svCK(\''+e+'\',\''+n+'\')">儲存</button>';
+}
+
+function svCK(e,n){
+  var q=parseInt(document.getElementById('cki-'+e).value);
+  if(isNaN(q)||q<1){alert('請輸入有效數量');return;}
+  ord[n]=q;syncOR();document.getElementById('orows').innerHTML='';
+  renOS();saveData();runChk();
+}
+
+function delCK(n){delOrd(n);runChk();}
+
+function runChk(){
+  document.getElementById('chok').classList.remove('show');
+  var items=Object.entries(ord);ckres=[];var tot=0,ok=0,sh=0,shl=[];
+  var expBtn=document.getElementById('expShortBtn');
+  if(!items.length){
+    ['ci','co','cs'].forEach(function(id){document.getElementById(id).textContent=0;});
+    document.getElementById('chalr').classList.remove('show');
+    document.getElementById('recard').style.display='none';
+    document.getElementById('ckbody').innerHTML='<tr><td colspan="6" style="text-align:center;padding:.8rem;color:var(--sub)">尚無訂單，請先輸入訂單</td></tr>';
+    document.getElementById('shipbtn').disabled=false;
+    document.getElementById('shipbtn').style.opacity='1';
+    expBtn.style.display='none';
+    return;
+  }
+  items.forEach(function(x){
+    var n=x[0],nd=x[1],h=inv[n]||0,d=h-nd;
+    tot+=nd;ckres.push({n:n,h:h,nd:nd,d:d});
+    if(d>=0)ok++;else{sh++;shl.push({n:n,h:h,sh:-d});}
+  });
+  document.getElementById('ci').textContent=tot;
+  document.getElementById('co').textContent=ok;
+  document.getElementById('cs').textContent=sh;
+  renCK();
+  var btn=document.getElementById('shipbtn');
+  if(shl.length){
+    var al=document.getElementById('chalr');
+    al.textContent='⚠ 有 '+sh+' 項商品庫存不足，請先補貨再出貨！';
+    al.classList.add('show');
+    document.getElementById('recard').style.display='block';
+    document.getElementById('rebdy').innerHTML=shl.map(function(s){
+      return '<tr><td>'+s.n+'</td><td>'+s.h+'</td><td style="color:var(--red);font-weight:700">缺 '+s.sh+' 個</td></tr>';
+    }).join('');
+    btn.disabled=true;btn.style.opacity='.5';
+    expBtn.style.display='flex';
+  } else {
+    document.getElementById('chalr').classList.remove('show');
+    document.getElementById('recard').style.display='none';
+    btn.disabled=false;btn.style.opacity='1';
+    expBtn.style.display='none';
+  }
+}
+
+function confirmShip(){
+  if(!Object.keys(ord).length){alert('沒有訂單可出貨');return;}
+  var now=new Date().toLocaleString('zh-TW');
+  Object.entries(ord).forEach(function(x){
+    var n=x[0],q=x[1],b=inv[n]||0;
+    inv[n]=Math.max(0,b-q);
+    his.unshift({t:now,n:n,q:q,a:inv[n]});
+  });
+  ord={};document.getElementById('orows').innerHTML='';
+  renOS();renInv();saveData();runChk();
+  document.getElementById('chok').classList.add('show');
+}
+
+function saveThr(){
+  var v=parseInt(document.getElementById('thr-inp').value);
+  if(isNaN(v)||v<1){alert('請輸入有效數字');return;}
+  thr=v;renInv();saveData();
+  var el=document.getElementById('thrsv');
+  el.classList.add('show');setTimeout(function(){el.classList.remove('show');},2000);
+}
+
+loadData();
+</script>
+</body>
+</html>
