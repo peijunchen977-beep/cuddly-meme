@@ -5,9 +5,6 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
 <title>庫存預撿工具</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<!-- Firebase CDN (compat 版，支援舊式 API) -->
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 <style>
 :root{
   --bg:#f4f1ea;--card:#fff;--text:#3c3633;--sub:#7a726e;
@@ -96,11 +93,11 @@ td{padding:6px 7px;border-bottom:1px solid var(--border);vertical-align:middle}
 </style>
 </head>
 <body>
-<div class="ld" id="ld"><div class="sp2"></div><div style="font-size:13px;color:var(--sub)">載入資料中⋯</div></div>
+<div class="ld" id="ld"><div class="sp2"></div><div style="font-size:13px;color:var(--sub)">載入雲端資料中⋯</div></div>
 
 <div class="header">
   <h1>📦 庫存預撿工具</h1>
-  <div class="sync"><div class="dot sp" id="dot"></div><span id="stxt">載入中...</span></div>
+  <div class="sync"><div class="dot sp" id="dot"></div><span id="stxt">連線中...</span></div>
 </div>
 
 <!-- ① 庫存清點 -->
@@ -152,7 +149,7 @@ td{padding:6px 7px;border-bottom:1px solid var(--border);vertical-align:middle}
     <div class="cstat" id="ck-sh" onclick="cf('sh')"><div class="lbl">需補貨</div><div class="val r" id="cs">0</div></div>
   </div>
   <div class="alr" id="chalr"></div>
-  <div class="suc" id="chok">✅ 出貨確認完成，庫存已扣除！</div>
+  <div class="suc" id="chok">✅ 出貨完成！未出項目已保留。</div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:8px">
     <button class="btn bo" onclick="runChk()">🔄 重新預撿</button>
     <button class="btn bg2" onclick="confirmShip()" id="shipbtn">🚚 確認出貨</button>
@@ -189,7 +186,25 @@ td{padding:6px 7px;border-bottom:1px solid var(--border);vertical-align:middle}
   </div>
 </div>
 
-<!-- ③ 匯入/匯出 -->
+<!-- ③ 出貨記錄 -->
+<div class="pg" id="pg-his">
+  <div style="height:10px"></div>
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <h3 style="margin:0">📦 出貨記錄</h3>
+      <button class="ibtn r" onclick="clrHis()">清空記錄</button>
+    </div>
+    <div class="tw">
+      <table>
+        <thead><tr><th>時間</th><th>商品</th><th>訂單數</th><th>實際出</th><th>未出</th><th>餘庫存</th></tr></thead>
+        <tbody id="hisbody"></tbody>
+      </table>
+    </div>
+    <div id="hisempty" class="empty">尚無出貨記錄</div>
+  </div>
+</div>
+
+<!-- ④ 匯入/匯出 -->
 <div class="pg" id="pg-io">
   <div style="height:10px"></div>
   <div class="card">
@@ -215,7 +230,7 @@ td{padding:6px 7px;border-bottom:1px solid var(--border);vertical-align:middle}
   </div>
 </div>
 
-<!-- ④ 系統設定 -->
+<!-- ⑤ 系統設定 -->
 <div class="pg" id="pg-set">
   <div style="height:10px"></div>
   <div class="card">
@@ -228,31 +243,24 @@ td{padding:6px 7px;border-bottom:1px solid var(--border);vertical-align:middle}
     <div class="suc mt8" id="thrsv">✓ 已儲存</div>
   </div>
   <div class="card">
-    <h3>💾 資料管理</h3>
-    <div class="sl">資料儲存於 Firebase 雲端，多裝置共享同步</div>
-    <button class="btn bo mt8" onclick="loadData()">🔄 重新載入資料</button>
+    <h3>☁️ 雲端同步</h3>
+    <div class="sl">資料同步至 JSONBin 雲端，所有人共用同一份資料</div>
+    <button class="btn bo mt8" onclick="loadData()">🔄 手動重新載入</button>
   </div>
 </div>
 
 <nav class="bnav">
   <button class="on" id="nav-inv" onclick="goTab('inv',this)"><div class="ic">📦</div>庫存清點</button>
   <button id="nav-ord" onclick="goTab('ord',this)"><div class="ic">📝</div>訂單預撿</button>
+  <button id="nav-his" onclick="goTab('his',this)"><div class="ic">📋</div>出貨記錄</button>
   <button id="nav-io" onclick="goTab('io',this)"><div class="ic">📊</div>匯入/匯出</button>
   <button id="nav-set" onclick="goTab('set',this)"><div class="ic">⚙️</div>系統設定</button>
 </nav>
 
 <script>
-// ======================================================
-// 🔥 Firebase 設定 — 請將下方 FIREBASE_DB_URL 換成你的
-//    Realtime Database URL，格式：
-//    https://<你的專案ID>-default-rtdb.firebaseio.com
-// ======================================================
-var FIREBASE_DB_URL = 'https://my-inventory-tool-7afee-default-rtdb.firebaseio.com';
-
-var firebaseConfig = { databaseURL: FIREBASE_DB_URL };
-firebase.initializeApp(firebaseConfig);
-var db = firebase.database();
-var dbRef = db.ref('inventory_tool');  // 資料存放的根節點
+var BIN_ID='6a1fd275f5f4af5e29b0e6f3';
+var API_KEY='$2a$10$0Ub7k/MjqzctPKeDM5MpIOrFnYZk.qTOVolfC5s4M70e1tiIkiApO';
+var API_URL='https://api.jsonbin.io/v3/b/'+BIN_ID;
 
 var inv={},ord={},ns={},his=[],thr=5,svtmr=null,aif='all',af='all',ckres=[];
 
@@ -264,19 +272,19 @@ function setSync(s,m){
 
 function loadData(){
   setSync('sp','載入中...');
-  dbRef.once('value').then(function(snapshot){
-    var data=snapshot.val()||{};
-    try{if(data.inv)inv=data.inv;}catch(e){}
-    try{if(data.ord)ord=data.ord;}catch(e){}
-    try{if(data.ns)ns=data.ns;}catch(e){}
-    try{if(data.his)his=data.his;}catch(e){}
-    if(data.thr){thr=parseInt(data.thr)||5;document.getElementById('thr-inp').value=thr;}
-    setSync('ok','資料已載入 · '+new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'}));
+  fetch(API_URL+'/latest',{headers:{'X-Master-Key':API_KEY,'X-Bin-Meta':'false'}})
+  .then(function(r){return r.json();})
+  .then(function(d){
+    if(d&&d.inv!==undefined){
+      inv=d.inv||{}; ord=d.ord||{}; ns=d.ns||{}; his=d.his||[]; thr=d.thr||5;
+      document.getElementById('thr-inp').value=thr;
+    }
+    setSync('ok','已同步 · '+new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'}));
     document.getElementById('ld').style.display='none';
     renInv(); renNS(); renOS(); runChk();
-  }).catch(function(err){
-    console.error('Firebase 載入失敗：',err);
-    setSync('err','載入失敗，請確認 Firebase 設定');
+  }).catch(function(e){
+    console.log(e);
+    setSync('err','載入失敗，請檢查網路');
     document.getElementById('ld').style.display='none';
     renInv(); renNS();
   });
@@ -285,20 +293,14 @@ function loadData(){
 function saveData(){
   clearTimeout(svtmr);
   svtmr=setTimeout(function(){
-    setSync('sp','儲存中...');
-    var payload={
-      inv: inv,
-      ord: ord,
-      ns: ns,
-      his: his.slice(0,200),  // 最多保留 200 筆歷史記錄，避免資料過大
-      thr: thr
-    };
-    dbRef.set(payload).then(function(){
-      setSync('ok','已儲存 · '+new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'}));
-    }).catch(function(err){
-      console.error('Firebase 儲存失敗：',err);
-      setSync('err','儲存失敗，請重試');
-    });
+    setSync('sp','同步中...');
+    fetch(API_URL,{
+      method:'PUT',
+      headers:{'Content-Type':'application/json','X-Master-Key':API_KEY},
+      body:JSON.stringify({inv:inv,ord:ord,ns:ns,his:his,thr:thr})
+    }).then(function(){
+      setSync('ok','已同步 · '+new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'}));
+    }).catch(function(){setSync('err','同步失敗');});
   },500);
 }
 
@@ -308,6 +310,7 @@ function goTab(pg,el){
   document.getElementById('pg-'+pg).classList.add('on');
   el.classList.add('on');
   if(pg==='ord'){renOR();runChk();}
+  if(pg==='his'){renHis();}
 }
 
 function fi(f){
@@ -625,33 +628,83 @@ function runChk(){
   var btn=document.getElementById('shipbtn');
   if(shl.length){
     var al=document.getElementById('chalr');
-    al.textContent='⚠ 有 '+sh+' 項商品庫存不足，請先補貨再出貨！';
+    al.textContent='⚠ 有 '+sh+' 項商品庫存不足，有貨的會先出，不足的出到 0 為止';
     al.classList.add('show');
     document.getElementById('recard').style.display='block';
     document.getElementById('rebdy').innerHTML=shl.map(function(s){
       return '<tr><td>'+s.n+'</td><td>'+s.h+'</td><td style="color:var(--red);font-weight:700">缺 '+s.sh+' 個</td></tr>';
     }).join('');
-    btn.disabled=true;btn.style.opacity='.5';
     expBtn.style.display='flex';
   } else {
     document.getElementById('chalr').classList.remove('show');
     document.getElementById('recard').style.display='none';
-    btn.disabled=false;btn.style.opacity='1';
     expBtn.style.display='none';
   }
+  btn.disabled=false; btn.style.opacity='1';
 }
 
 function confirmShip(){
   if(!Object.keys(ord).length){alert('沒有訂單可出貨');return;}
-  var now=new Date().toLocaleString('zh-TW');
+  var now=new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'});
+  var date=new Date().toLocaleDateString('zh-TW');
+  var newOrd={};
+  var shipped=[],partial=[],none=[];
   Object.entries(ord).forEach(function(x){
-    var n=x[0],q=x[1],b=inv[n]||0;
-    inv[n]=Math.max(0,b-q);
-    his.unshift({t:now,n:n,q:q,a:inv[n]});
+    var n=x[0],need=x[1],have=inv[n]||0;
+    if(have<=0){
+      newOrd[n]=need;
+      none.push({n:n,need:need});
+    } else if(have>=need){
+      inv[n]=have-need;
+      shipped.push({n:n,need:need});
+      his.unshift({t:date+' '+now,n:n,ordered:need,sent:need,left:0,a:inv[n]});
+    } else {
+      inv[n]=0;
+      newOrd[n]=need-have;
+      partial.push({n:n,need:need,sent:have,left:need-have});
+      his.unshift({t:date+' '+now,n:n,ordered:need,sent:have,left:need-have,a:0});
+    }
   });
-  ord={};document.getElementById('orows').innerHTML='';
-  renOS();renInv();saveData();runChk();
+  ord=newOrd;
+  document.getElementById('orows').innerHTML='';
+  renOR(); renOS(); renInv(); saveData(); runChk();
+  var msg='';
+  if(shipped.length)msg+='✅ 全數出貨 '+shipped.length+' 項\n';
+  if(partial.length){
+    msg+='\n⚠️ 部分出貨 '+partial.length+' 項：\n';
+    partial.forEach(function(p){msg+='  '+p.n+' — 出 '+p.sent+'，待出 '+p.left+'\n';});
+  }
+  if(none.length){
+    msg+='\n❌ 無庫存未出 '+none.length+' 項：\n';
+    none.forEach(function(p){msg+='  '+p.n+' — 需出 '+p.need+'\n';});
+  }
+  if(partial.length||none.length)msg+='\n未完成項目已保留在訂單清單。';
   document.getElementById('chok').classList.add('show');
+  alert(msg);
+}
+
+function renHis(){
+  var tb=document.getElementById('hisbody');
+  var emp=document.getElementById('hisempty');
+  if(!his.length){tb.innerHTML='';emp.style.display='block';return;}
+  emp.style.display='none';
+  tb.innerHTML=his.map(function(h){
+    var lc=h.left>0?'color:var(--red);font-weight:700':'color:var(--sub)';
+    var sc=h.sent<h.ordered?'color:var(--yellow);font-weight:700':'color:var(--green);font-weight:700';
+    return '<tr>'+
+      '<td style="font-size:10px;white-space:nowrap;color:var(--sub)">'+h.t+'</td>'+
+      '<td style="word-break:break-all">'+h.n+'</td>'+
+      '<td style="text-align:center">'+h.ordered+'</td>'+
+      '<td style="text-align:center;'+sc+'">'+h.sent+'</td>'+
+      '<td style="text-align:center;'+lc+'">'+(h.left>0?h.left:'-')+'</td>'+
+      '<td style="text-align:center">'+h.a+'</td>'+
+    '</tr>';
+  }).join('');
+}
+
+function clrHis(){
+  if(!confirm('確定清空所有出貨記錄？'))return;
+  his=[];saveData();renHis();
 }
 
 function saveThr(){
