@@ -79,7 +79,7 @@ textarea{min-height:80px;resize:vertical;font-family:monospace;font-size:12px}
 .cstat .lbl{font-size:10px;color:var(--sub);margin-bottom:3px}
 .cstat .val{font-size:20px;font-weight:700}
 .tw{overflow-x:auto}
-table{width:100%;border-collapse:collapse;font-size:12px;min-width:260px}
+table{width:100%;border-collapse:collapse;font-size:12px;min-width:280px}
 th{padding:6px 7px;border-bottom:1.5px solid var(--border);color:var(--sub);font-weight:600;text-align:left;white-space:nowrap}
 td{padding:6px 7px;border-bottom:1px solid var(--border);vertical-align:middle}
 .srow td{background:#fff8f5}
@@ -178,7 +178,7 @@ td{padding:6px 7px;border-bottom:1px solid var(--border);vertical-align:middle}
       <h3 style="margin:0">📋 總覽清單</h3>
       <span id="cfl" style="font-size:10px;color:var(--sub)"></span>
     </div>
-    <div class="tw"><table><thead><tr><th>商品</th><th>庫存</th><th>需出</th><th>差額</th><th>狀態</th><th>操作</th></tr></thead><tbody id="ckbody"></tbody></table></div>
+    <div class="tw"><table><thead><tr><th>商品</th><th>庫存</th><th>需出</th><th>差額</th><th>狀態</th><th>實際出貨</th><th>操作</th></tr></thead><tbody id="ckbody"></tbody></table></div>
   </div>
   <div class="card" id="recard" style="display:none">
     <h3>📋 補貨清單（請傳給倉庫）</h3>
@@ -244,7 +244,7 @@ td{padding:6px 7px;border-bottom:1px solid var(--border);vertical-align:middle}
   </div>
   <div class="card">
     <h3>☁️ 雲端同步</h3>
-    <div class="sl">資料同步至 JSONBin 雲端，所有人共用同一份資料</div>
+    <div class="sl">資料即時同步至 Firebase，所有人共用同一份資料</div>
     <button class="btn bo mt8" onclick="loadData()">🔄 手動重新載入</button>
   </div>
 </div>
@@ -258,10 +258,7 @@ td{padding:6px 7px;border-bottom:1px solid var(--border);vertical-align:middle}
 </nav>
 
 <script>
-var BIN_ID='6a1fd275f5f4af5e29b0e6f3';
-var API_KEY='$2a$10$0Ub7k/MjqzctPKeDM5MpIOrFnYZk.qTOVolfC5s4M70e1tiIkiApO';
-var API_URL='https://api.jsonbin.io/v3/b/'+BIN_ID;
-
+var FB_URL='https://my-inventory-tool-7afee-default-rtdb.firebaseio.com/data';
 var inv={},ord={},ns={},his=[],thr=5,svtmr=null,aif='all',af='all',ckres=[];
 
 function setSync(s,m){
@@ -272,10 +269,10 @@ function setSync(s,m){
 
 function loadData(){
   setSync('sp','載入中...');
-  fetch(API_URL+'/latest',{headers:{'X-Master-Key':API_KEY,'X-Bin-Meta':'false'}})
+  fetch(FB_URL+'.json')
   .then(function(r){return r.json();})
   .then(function(d){
-    if(d&&d.inv!==undefined){
+    if(d){
       inv=d.inv||{}; ord=d.ord||{}; ns=d.ns||{}; his=d.his||[]; thr=d.thr||5;
       document.getElementById('thr-inp').value=thr;
     }
@@ -294,13 +291,13 @@ function saveData(){
   clearTimeout(svtmr);
   svtmr=setTimeout(function(){
     setSync('sp','同步中...');
-    fetch(API_URL,{
+    fetch(FB_URL+'.json',{
       method:'PUT',
-      headers:{'Content-Type':'application/json','X-Master-Key':API_KEY},
+      headers:{'Content-Type':'application/json'},
       body:JSON.stringify({inv:inv,ord:ord,ns:ns,his:his,thr:thr})
     }).then(function(){
       setSync('ok','已同步 · '+new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'}));
-    }).catch(function(){setSync('err','同步失敗');});
+    }).catch(function(){setSync('err','同步失敗，請檢查網路');});
   },500);
 }
 
@@ -572,32 +569,22 @@ function renCK(){
   var tb=document.getElementById('ckbody'),rows=ckres;
   if(af==='ok')rows=ckres.filter(function(r){return r.d>=0;});
   else if(af==='sh')rows=ckres.filter(function(r){return r.d<0;});
-  if(!rows.length){tb.innerHTML='<tr><td colspan="6" style="text-align:center;padding:.8rem;color:var(--sub)">無符合項目</td></tr>';return;}
+  if(!rows.length){tb.innerHTML='<tr><td colspan="7" style="text-align:center;padding:.8rem;color:var(--sub)">無符合項目</td></tr>';return;}
   tb.innerHTML=rows.map(function(r){
     var e=encodeURIComponent(r.n);
     var bk=r.d>=0?'<span class="badge bok">充足</span>':'<span class="badge bout">不足</span>';
     var ds=r.d>=0?'+'+r.d:String(r.d),dc=r.d>=0?'var(--green)':'var(--red)';
+    var maxOut=Math.min(r.h,r.nd);
     return '<tr'+(r.d<0?' class="srow"':'')+'>'+
-      '<td>'+r.n+'</td><td>'+r.h+'</td>'+
-      '<td id="ctq-'+e+'">'+r.nd+'</td>'+
-      '<td style="color:'+dc+';font-weight:700">'+ds+'</td><td>'+bk+'</td>'+
-      '<td id="cta-'+e+'"><div class="ab">'+
-        '<button class="ibtn b" onclick="edCK(\''+e+'\',\''+r.n+'\','+r.nd+')">編輯</button>'+
-        '<button class="ibtn r" onclick="delCK(\''+r.n+'\')">刪除</button>'+
-      '</div></td></tr>';
+      '<td style="word-break:break-all">'+r.n+'</td>'+
+      '<td style="text-align:center">'+r.h+'</td>'+
+      '<td style="text-align:center">'+r.nd+'</td>'+
+      '<td style="text-align:center;color:'+dc+';font-weight:700">'+ds+'</td>'+
+      '<td>'+bk+'</td>'+
+      '<td><input type="number" id="act-'+e+'" value="'+maxOut+'" min="0" max="'+r.nd+'" style="width:60px;height:30px;font-size:12px;text-align:center"></td>'+
+      '<td><button class="ibtn r" onclick="delCK(\''+r.n+'\')">刪除</button></td>'+
+    '</tr>';
   }).join('');
-}
-
-function edCK(e,n,nd){
-  document.getElementById('ctq-'+e).innerHTML='<input type="number" id="cki-'+e+'" value="'+nd+'" min="1" style="width:58px;height:28px;font-size:12px">';
-  document.getElementById('cta-'+e).innerHTML='<button class="ibtn g" onclick="svCK(\''+e+'\',\''+n+'\')">儲存</button>';
-}
-
-function svCK(e,n){
-  var q=parseInt(document.getElementById('cki-'+e).value);
-  if(isNaN(q)||q<1){alert('請輸入有效數量');return;}
-  ord[n]=q;syncOR();document.getElementById('orows').innerHTML='';
-  renOS();saveData();runChk();
 }
 
 function delCK(n){delOrd(n);runChk();}
@@ -610,7 +597,7 @@ function runChk(){
     ['ci','co','cs'].forEach(function(id){document.getElementById(id).textContent=0;});
     document.getElementById('chalr').classList.remove('show');
     document.getElementById('recard').style.display='none';
-    document.getElementById('ckbody').innerHTML='<tr><td colspan="6" style="text-align:center;padding:.8rem;color:var(--sub)">尚無訂單，請先輸入訂單</td></tr>';
+    document.getElementById('ckbody').innerHTML='<tr><td colspan="7" style="text-align:center;padding:.8rem;color:var(--sub)">尚無訂單，請先輸入訂單</td></tr>';
     document.getElementById('shipbtn').disabled=false;
     document.getElementById('shipbtn').style.opacity='1';
     expBtn.style.display='none';
@@ -628,7 +615,7 @@ function runChk(){
   var btn=document.getElementById('shipbtn');
   if(shl.length){
     var al=document.getElementById('chalr');
-    al.textContent='⚠ 有 '+sh+' 項商品庫存不足，有貨的會先出，不足的出到 0 為止';
+    al.textContent='⚠ 有 '+sh+' 項商品庫存不足，請在「實際出貨」欄填入可出數量後確認出貨';
     al.classList.add('show');
     document.getElementById('recard').style.display='block';
     document.getElementById('rebdy').innerHTML=shl.map(function(s){
@@ -649,25 +636,31 @@ function confirmShip(){
   var date=new Date().toLocaleDateString('zh-TW');
   var newOrd={};
   var shipped=[],partial=[],none=[];
-  Object.entries(ord).forEach(function(x){
-    var n=x[0],need=x[1],have=inv[n]||0;
-    if(have<=0){
-      newOrd[n]=need;
-      none.push({n:n,need:need});
-    } else if(have>=need){
-      inv[n]=have-need;
-      shipped.push({n:n,need:need});
-      his.unshift({t:date+' '+now,n:n,ordered:need,sent:need,left:0,a:inv[n]});
-    } else {
-      inv[n]=0;
-      newOrd[n]=need-have;
-      partial.push({n:n,need:need,sent:have,left:need-have});
-      his.unshift({t:date+' '+now,n:n,ordered:need,sent:have,left:need-have,a:0});
+
+  ckres.forEach(function(r){
+    var n=r.n,need=r.nd;
+    var e=encodeURIComponent(n);
+    var inp=document.getElementById('act-'+e);
+    var sent=inp?parseInt(inp.value):0;
+    if(isNaN(sent)||sent<0)sent=0;
+    if(sent>need)sent=need;
+    var left=need-sent;
+
+    if(sent>0){
+      inv[n]=Math.max(0,(inv[n]||0)-sent);
+      his.unshift({t:date+' '+now,n:n,ordered:need,sent:sent,left:left,a:inv[n]});
     }
+    if(left>0)newOrd[n]=left;
+
+    if(sent===need)shipped.push({n:n,sent:sent});
+    else if(sent>0)partial.push({n:n,sent:sent,left:left});
+    else none.push({n:n,need:need});
   });
+
   ord=newOrd;
   document.getElementById('orows').innerHTML='';
   renOR(); renOS(); renInv(); saveData(); runChk();
+
   var msg='';
   if(shipped.length)msg+='✅ 全數出貨 '+shipped.length+' 項\n';
   if(partial.length){
@@ -675,12 +668,12 @@ function confirmShip(){
     partial.forEach(function(p){msg+='  '+p.n+' — 出 '+p.sent+'，待出 '+p.left+'\n';});
   }
   if(none.length){
-    msg+='\n❌ 無庫存未出 '+none.length+' 項：\n';
+    msg+='\n❌ 本次未出 '+none.length+' 項：\n';
     none.forEach(function(p){msg+='  '+p.n+' — 需出 '+p.need+'\n';});
   }
   if(partial.length||none.length)msg+='\n未完成項目已保留在訂單清單。';
   document.getElementById('chok').classList.add('show');
-  alert(msg);
+  if(msg)alert(msg);
 }
 
 function renHis(){
